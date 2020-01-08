@@ -327,7 +327,7 @@ class MpdProcessor(object):
                         # only append if there are children
                         s_elems = seg_timeline.getchildren()
                         if len(s_elems) > 0:
-                            timeline_location = "/MPD/Period[@id='%s']/AdaptationSet[@contentType='%s']/SegmentTemplate/SegmentTimeline" % (pdata.get('id'), ad_set.get('contentType'))
+                            timeline_location = "/MPD/Period[@id='%s']/AdaptationSet[@id='%s']/SegmentTemplate/SegmentTimeline" % (pdata.get('id'), ad_set.get('id'))
                             timeline_add = patch_ops.insert_add_op(patch, timeline_location, 'append')
                             timeline_add.extend(s_elems)
 
