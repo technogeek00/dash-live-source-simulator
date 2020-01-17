@@ -218,9 +218,7 @@ class MpdProcessor(object):
         last_period_id = '-1'
         segtimeline_generators = self.create_timeline_generators()
         for (period, pdata) in zip(periods, period_data):
-            if not self.update_period(mpd, period, pdata, last_period_id, data['periodOffset'] >= 0, segtimeline_generators):
-                # If the period is not ready(is timeline, but has no segments yet), don't include it this time.
-                mpd.remove(period)
+            self.update_period(mpd, period, pdata, last_period_id, data['periodOffset'] >= 0, segtimeline_generators)
             last_period_id = pdata.get('id')
 
     def process_patch(self, patch, mpd, mpd_data, period_data):
@@ -262,7 +260,7 @@ class MpdProcessor(object):
         segtimeline_generators = self.create_timeline_generators()
         last_period_id = '-1'
         for pdata in period_data:
-            if not segtimeline_generators and pdata.get('presentationTimeOffset') > self.patch_base:
+            if pdata.get('presentationTimeOffset') > self.patch_base:
                 # Period is new with this patch, clone original, setup like normal
                 period = copy.deepcopy(original_period)
                 self.update_period(mpd, period, pdata, last_period_id, mpd_data['periodOffset'] >= 0, segtimeline_generators)
@@ -272,44 +270,6 @@ class MpdProcessor(object):
                 period_add.append(period)
 
             elif segtimeline_generators:
-                # Check if this period is ready or new
-                is_period_ready = True
-                is_period_new = False
-                adaptation_sets = original_period.findall(add_ns('AdaptationSet'))
-                for ad_set in adaptation_sets:
-                    content_type = ad_set.get('contentType')
-                    segtime_gen = segtimeline_generators[content_type]
-                    seg_templates = ad_set.findall(add_ns('SegmentTemplate'))
-                    for seg_template in seg_templates:
-                        (start_time, end_time, use_closest) = self.compute_period_times(pdata)
-                        seg_timeline = segtime_gen.create_segtimeline(
-                                            start_time, end_time, use_closest)
-                        s_elems = seg_timeline.getchildren()
-                        if len(s_elems) == 0:
-                            # If the timeline has no segments, this period is not ready, yet.
-                            is_period_ready = False
-                        else:
-                            # If the first segment of this period and this patch is same,
-                            # it means this period is new with this patch.
-                            start_time = self.patch_base
-                            seg_timeline = segtime_gen.create_segtimeline(
-                                                start_time, end_time, use_closest)
-                            s_elems_patch_base = seg_timeline.getchildren()
-                            if len(s_elems_patch_base) > 0:
-                                if s_elems[0].get("t") == s_elems_patch_base[0].get("t"):
-                                    is_period_new = True
-                if not is_period_ready:
-                    continue
-                elif is_period_new:
-                    # Period is new with this patch, clone original, setup like normal
-                    period = copy.deepcopy(original_period)
-                    self.update_period(mpd, period, pdata, last_period_id, mpd_data['periodOffset'] >= 0, segtimeline_generators)
-
-                    # create the actual insertion operation
-                    period_add = patch_ops.insert_add_op(patch, '/MPD', 'append')
-                    period_add.append(period)
-                    continue
-
                 # Period already exists in memory and we use segment timeline
                 # We therefore have to generate extensions to the inmemory timeline
                 # Note only one previous period should ever be added to, not gating on that explicitly here
@@ -404,7 +364,6 @@ class MpdProcessor(object):
             "Create an EventStream element for MPD Callback."
             return self.create_descriptor_elem("EventStream", "urn:mpeg:dash:event:callback:2015", value=str(1),
                                                elem_id=None, messageData=BaseURLSegmented)
-        is_period_ready = True
         BaseURL = mpd.findall(add_ns('BaseURL'))
         if len(BaseURL) > 0:
             BaseURLParts = BaseURL[0].text.split('/')
@@ -454,8 +413,6 @@ class MpdProcessor(object):
                     (start_time, end_time, use_closest) = self.compute_period_times(pdata)
                     seg_timeline = segtime_gen.create_segtimeline(
                                         start_time, end_time, use_closest)
-                    if (len(seg_timeline) == 0):
-                        is_period_ready = False
                     remove_attribs(seg_template, ['duration'])
                     seg_template.set('timescale', str(self.cfg.media_data[content_type]['timescale']))
                     if pto != "0" and not offset_at_period_level:
@@ -475,7 +432,6 @@ class MpdProcessor(object):
                     seg_template.set('media', media_template)
                     seg_template.text = "\n"
                     seg_template.insert(0, seg_timeline)
-        return is_period_ready
 
     def compute_period_times(self, pdata):
         now = self.mpd_proc_cfg['now']
